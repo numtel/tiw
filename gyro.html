@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D Gyroscope Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    :root {
+      color-scheme: dark light;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #202738, #05060a);
+      color: #f5f5f5;
+      overflow: hidden;
+    }
+
+    .container {
+      text-align: center;
+    }
+
+    .title {
+      margin-bottom: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      opacity: 0.8;
+    }
+
+    .gyro-wrapper {
+      width: min(70vw, 320px);
+      height: min(70vw, 320px);
+      margin-inline: auto;
+      perspective: 800px;
+    }
+
+    .gyro-scene {
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+      transition: transform 80ms linear;
+      position: relative;
+    }
+
+    /* Outer ring: yaw (alpha) */
+    .ring-yaw {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid rgba(0, 200, 255, 0.7);
+      box-shadow: 0 0 20px rgba(0, 200, 255, 0.4);
+      transform-style: preserve-3d;
+    }
+
+    /* Middle ring: pitch (beta) */
+    .ring-pitch {
+      position: absolute;
+      inset: 10%;
+      border-radius: 50%;
+      border: 2px solid rgba(120, 255, 140, 0.7);
+      box-shadow: 0 0 16px rgba(120, 255, 140, 0.4);
+      transform-style: preserve-3d;
+    }
+
+    /* Inner ring: roll (gamma) */
+    .ring-roll {
+      position: absolute;
+      inset: 20%;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 200, 40, 0.8);
+      box-shadow: 0 0 14px rgba(255, 200, 40, 0.5);
+      transform-style: preserve-3d;
+    }
+
+    .axis {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 120%;
+      height: 2px;
+      transform-origin: center;
+      opacity: 0.8;
+    }
+
+    .axis-x {
+      background: linear-gradient(90deg, transparent, rgba(255, 80, 80, 0.9), transparent);
+      transform: translate(-50%, -50%);
+    }
+
+    .axis-y {
+      width: 2px;
+      height: 120%;
+      background: linear-gradient(180deg, transparent, rgba(80, 180, 255, 0.9), transparent);
+      transform: translate(-50%, -50%);
+    }
+
+    .dot-center {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ffffff;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 14px rgba(255, 255, 255, 0.9);
+    }
+
+    /* Floating "hello, world" marker on a virtual sphere */
+    .hello-sphere {
+      position: absolute;
+      inset: 0;
+      transform-style: preserve-3d;
+      transition: transform 2000ms linear;
+      z-index:10;
+    }
+
+    .hello-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) translateY(-45%) translateZ(70px);
+      padding: 0.25rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      background: rgba(255, 255, 255, 0.16);
+      color: #ffffff;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 0 12px rgba(0, 0, 0, 0.6);
+      white-space: nowrap;
+    }
+
+    .info {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      opacity: 0.9;
+    }
+
+    .info span.label {
+      opacity: 0.7;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.7rem;
+    }
+
+    .values {
+      margin-top: 0.4rem;
+      display: flex;
+      justify-content: center;
+      gap: 1.2rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.8rem;
+    }
+
+    .values div {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 3.5rem;
+    }
+
+    .values span:first-child {
+      font-size: 0.7rem;
+      opacity: 0.7;
+      margin-bottom: 0.1rem;
+    }
+
+    .btn {
+      margin-top: 1rem;
+      padding: 0.6rem 1.1rem;
+      border-radius: 999px;
+      border: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.1);
+      color: inherit;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      outline: 1px solid rgba(255, 255, 255, 0.25);
+      transition: transform 120ms ease, background 120ms ease, outline 120ms ease, box-shadow 120ms ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.16);
+      outline-color: rgba(255, 255, 255, 0.4);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+      box-shadow: none;
+    }
+
+    .status {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      opacity: 0.75;
+      min-height: 1em;
+    }
+
+    .status.error {
+      color: #ffb3b3;
+    }
+
+    .status.ok {
+      color: #a5ffb3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">3D Gyroscope</div>
+
+    <div class="gyro-wrapper">
+      <div id="gyroScene" class="gyro-scene">
+        <div id="ringYaw" class="ring-yaw">
+          <div class="axis axis-x"></div>
+          <div class="axis axis-y"></div>
+        </div>
+        <div id="ringPitch" class="ring-pitch">
+          <div class="axis axis-x"></div>
+          <div class="axis axis-y"></div>
+        </div>
+        <div id="ringRoll" class="ring-roll">
+          <div class="axis axis-x"></div>
+          <div class="axis axis-y"></div>
+        </div>
+        <div class="dot-center"></div>
+
+        <!-- Floating label on a virtual sphere -->
+        <div id="helloSphere" class="hello-sphere">
+          <div class="hello-label" id="helloMsg">hello, world</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="info">
+      <span class="label">Device Orientation</span>
+      <div class="values">
+        <div>
+          <span>Yaw</span>
+          <span id="valAlpha">0°</span>
+        </div>
+        <div>
+          <span>Pitch</span>
+          <span id="valBeta">0°</span>
+        </div>
+        <div>
+          <span>Roll</span>
+          <span id="valGamma">0°</span>
+        </div>
+      </div>
+    </div>
+
+    <button id="enableBtn" class="btn" style="display:none;">
+      Enable Motion Access
+    </button>
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const sceneEl = document.getElementById("gyroScene");
+    const ringYawEl = document.getElementById("ringYaw");
+    const ringPitchEl = document.getElementById("ringPitch");
+    const ringRollEl = document.getElementById("ringRoll");
+
+    const alphaEl = document.getElementById("valAlpha");
+    const betaEl = document.getElementById("valBeta");
+    const gammaEl = document.getElementById("valGamma");
+
+    const enableBtn = document.getElementById("enableBtn");
+
+    // New: sphere that carries the hello label
+    const helloSphereEl = document.getElementById("helloSphere");
+    const helloMsgEl = document.getElementById("helloMsg");
+    let n=0;
+    const set = ['foobar20000', "we're all just water", "we're all just explorers"];
+    helloMsgEl.addEventListener("click", function(event) {
+      event.target.innerHTML = set[n++];
+      if(event.target.innerHTML === 'undefined'){
+        window.location="visual.html";
+      }
+    }, false);
+
+    let hasListener = false;
+
+    function setStatus(text, type = "") {
+      statusEl.textContent = text || "";
+      statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    function formatAngle(v) {
+      if (v == null || isNaN(v)) return "0°";
+      return v.toFixed(0) + "°";
+    }
+
+    function onDeviceOrientation(event) {
+      const { alpha, beta, gamma } = event;
+
+      alphaEl.textContent = formatAngle(alpha); // yaw
+      betaEl.textContent = formatAngle(beta);   // pitch
+      gammaEl.textContent = formatAngle(gamma); // roll
+
+      // Scene tilt just for a bit of depth (based on pitch / roll)
+      const tiltX = beta ? -beta * 0.2 : 0;
+      const tiltY = gamma ? gamma * 0.2 : 0;
+      sceneEl.style.transform = `rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+
+      // Individual rings
+      if (alpha != null) {
+        ringYawEl.style.transform = `rotateZ(${alpha}deg)`;
+      }
+      if (beta != null) {
+        ringPitchEl.style.transform = `rotateX(${beta}deg)`;
+      }
+      if (gamma != null) {
+        ringRollEl.style.transform = `rotateY(${gamma}deg)`;
+      }
+
+      // Make "hello, world" move like it's on a sphere surface:
+      // Use pitch (beta) and roll (gamma) to rotate a virtual sphere.
+      const pitch = beta-60 || 0;   // front/back
+      const roll = gamma || 0;   // left/right
+      const yaw = alpha-180 || 0;    // spin around vertical axis
+
+      // Rotate the sphere carrying the label.
+      // Order: yaw around Z, then roll around Y, then pitch around X.
+      helloSphereEl.style.transform =
+        `rotateZ(${yaw}deg) rotateY(${roll}deg) rotateX(${-pitch}deg)`;
+    }
+
+    function addOrientationListener() {
+      if (hasListener) return;
+      window.addEventListener("deviceorientation", onDeviceOrientation, true);
+      hasListener = true;
+      setStatus("Listening to sensor data…", "ok");
+    }
+
+    function initOrientation() {
+      if (typeof DeviceOrientationEvent === "undefined") {
+        setStatus("DeviceOrientation is not supported on this device / browser.", "error");
+        return;
+      }
+
+      // iOS 13+ requires permission via user interaction
+      if (typeof DeviceOrientationEvent.requestPermission === "function") {
+        enableBtn.style.display = "inline-flex";
+        enableBtn.addEventListener("click", async () => {
+          try {
+            const response = await DeviceOrientationEvent.requestPermission();
+            if (response === "granted") {
+              enableBtn.style.display = "none";
+              addOrientationListener();
+            } else {
+              setStatus(
+                "Motion access was denied. Enable it in Settings > Safari > Motion & Orientation.",
+                "error"
+              );
+            }
+          } catch (err) {
+            console.error(err);
+            setStatus("Error requesting motion access. Check browser permissions.", "error");
+          }
+        });
+      } else {
+        // Other platforms: just attach listener
+        addOrientationListener();
+      }
+    }
+
+    window.addEventListener("load", initOrientation);
+  </script>
+</body>
+</html>
+

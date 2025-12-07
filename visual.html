@@ -1,0 +1,441 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>transimminent.world</title>
+<style>
+@font-face {
+  font-family: "RubikGlitch";
+  src: url(fonts/RubikGlitch-Regular.ttf);
+}
+body{
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  font-family:RubikGlitch; /*otherwise it won't be loaded for the texture immediately*/
+}
+#scene {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+  const canvas = document.getElementById('scene');
+
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const gl = canvas.getContext('webgl2');
+
+  if(!gl)
+    throw new Error('webgl2_required');
+
+  gl.clearColor(0, 0, 0, 1);
+
+  // Vertex Shader
+  const vsSource = `#version 300 es
+    precision highp float;
+    layout (location=0) in vec4 position;
+    layout (location=1) in vec2 uv;
+
+    out vec2 uv_pos;
+
+    void main() {
+      uv_pos = uv;
+      gl_Position = position;
+    }`;
+
+  // Fragment shader
+  const fsSource = `#version 300 es
+precision highp float;
+precision highp int;
+
+in vec2 uv_pos;
+out vec4 fragColor;
+
+uniform uvec4 u_work0;
+uniform uvec4 u_work1;
+uniform float u_time;
+
+// device orientation (x = roll, y = pitch, z = yaw)
+uniform vec3 u_orientation;
+
+uniform sampler2D u_text;
+
+// --- simple hash-based 2D noise ---
+float hash21(vec2 p) {
+  // cheap, tileable-ish hash
+  p = fract(p * vec2(123.34, 345.45));
+  p += dot(p, p + 34.345);
+  return fract(p.x * p.y);
+}
+
+// scrolling grain texture in pixel space
+float grainNoise(vec2 p, float time, float frameRand) {
+  // scale to "texture" space
+  vec2 q = p * 0.015;       // smaller = bigger grain, larger = finer grain
+  q.y += time * 0.6;        // scroll upward over time
+
+  float n  = hash21(q);
+  n       += 0.5 * hash21(q * 2.3 + 7.1); // second octave for extra grit
+  n       /= 1.5;
+
+  // mix in a small per-frame random factor so the noise isn't perfectly repeatable
+  n = mix(n, frameRand, 0.15);
+  return n;
+}
+
+void main() {
+  // Pixel coordinates
+  float px = uv_pos.x * 1919.;  // ${canvas.width - 1}.
+  float py = uv_pos.y * 1079.;  // ${canvas.height - 1}.
+
+  // Use continuous time directly (no wrapping)
+  float t = u_time;
+
+  // Centered UV for "3D" perspective tricks
+  vec2 p = uv_pos * 2.0 - 1.0;
+
+  // Interpret orientation:
+  //  x ~ roll (tilt left/right)
+  //  y ~ pitch (tilt forward/back)
+  //  z ~ yaw (twist)
+  float tiltX = u_orientation.x;
+  float tiltY = u_orientation.y;
+  float twist = u_orientation.z;
+
+  // Fake depth: fragments "near" the viewer vs "far"
+  float depth = 0.5 + 0.5 * (p.y * tiltY - p.x * tiltX);
+  depth = clamp(depth, 0.0, 1.0);
+
+  // --- RED: radial sunburst from bottom-center, rotating over time ---
+  // Move origin slightly with tilt so it feels like a 3D light
+  vec2 origin = vec2(
+    0.5 + tiltX * 0.15,
+    1.2 + tiltY * 0.25
+  );
+
+  vec2 dir = uv_pos - origin;     // vector from origin to fragment
+  float angle = atan(dir.y, dir.x);  // [-pi, pi]
+
+  float numRays = ((cos(t/4.)*0.25) + 1.) * 40.0;
+  float rotationSpeed = ((cos(t/4.)*0.25) + 1.) * 4.7;
+
+  // Parallax: rays pack closer together when "far" and spread when "near"
+  float rayParallax = mix(0.6, 1.6, depth);
+
+  float baseRed = 0.5 + 0.5 * cos(
+    angle * numRays * rayParallax
+    - t * rotationSpeed
+    + twist * 2.5            // twist the whole fan when you rotate the device
+  );
+
+  // Slightly fade red with depth so it looks like it's receding
+  baseRed *= mix(0.6, 1.2, 1.0 - depth);
+
+  // --- GREEN: vertical bars with 3D skew ---
+  // Cycle between 60-120 px every ~18 seconds (t/3 radians)
+  float baseBarSize = (cos(t/3.) + 1.) * 60.0;
+  float barScale = mix(8.0, 1.0, uv_pos.y); // 8x at top → 1x at bottom
+  float barPx = baseBarSize * barScale;
+
+  float greenSpeed = 80.0;
+
+  // skew bars with roll so they lean in 3D
+  float skew = tiltX * 0.5;
+  float depthScroll = mix(0.6, 1.4, depth);
+
+  float coord = (py + t * greenSpeed * depthScroll) / barPx;
+  coord += p.x * skew;  // sideways parallax
+
+  float baseGreen = sin(fract(coord) * 3.1415926);
+
+  // Boost green when "near" so bars feel like they're coming out of the screen
+  baseGreen *= mix(0.5, 1.6, depth);
+
+  // --- Gritty scrolling texture ---
+  // slow flicker: grain changes only a few times per second
+  float flickerRate = 0.1; // flickers per second (lower = slower)
+  float flickerStep = floor(u_time * flickerRate) / flickerRate;
+
+  // stable random per flicker step
+  float frameRand = fract(sin(flickerStep * 43758.19) * 43758.5453);
+
+  // grain in pixel space, scrolling with time
+  float grain = grainNoise(vec2(px, py), t, frameRand);
+
+  // center around 0 and scale
+  float grainAmt = 0.60;                 // overall grain strength
+  float g = (grain - 0.5) * grainAmt;
+
+  // --- Apply texture to colors ---
+  float red   = clamp(baseRed   * 0.5 + g * 1.2, 0.0, 1.0);
+  float green = clamp(baseGreen * 0.5 + g * 1.0, 0.0, 1.0);
+
+  // subtle blue haze so the scene feels more like stage light through fog
+  float blueBase = 0.08 + 0.12 * (1.0 - uv_pos.y); // slightly brighter near top
+  float blue = clamp(blueBase + g * 0.6, 0.0, 1.0);
+
+  vec4 color = vec4(red, green, blue, 1.0);
+
+  // --- WORDS embedded in bands ---
+
+  // Compute a UV for the scrolling / tilting green bands so the
+  // text "sticks" to them and follows orientation / mouse input.
+  float bandPhase = fract(coord);      // local position inside a band [0,1)
+  float bandIndex = floor(coord);      // which band we are in (unused but kept for tweakability)
+
+  // Start from the original screen UV
+  vec2 textUV = uv_pos;
+  textUV.x = 1. - textUV.x;
+
+  // Slide text vertically with the band motion
+  // (so when the bands scroll, the text scrolls with them).
+  textUV.y = bandPhase;
+
+  // Add a bit of parallax / skew from orientation so
+  // rotating the device or moving the mouse also nudges the text.
+  textUV.x += p.x * skew * 0.35 + tiltX * 0.15 + twist * 0.05;
+
+  // Keep things mostly inside the texture domain
+  textUV = clamp(textUV, 0.0, 1.0);
+
+  // u_text should be white text on transparent/black background.
+  vec4 textSample = texture(u_text, textUV);
+
+  // how "strong" the word is (use alpha or luminance)
+  float textMask = clamp(textSample.a + max(textSample.r, max(textSample.g, textSample.b)), 0.0, 1.0);
+
+  // make words only really show where the green band is strong
+  float bandMask = smoothstep(0.4, 0.9, baseGreen);
+
+  float wordMask = textMask * bandMask;
+
+  // tint for the words (slightly brighter greenish)
+  vec3 wordColor = vec3(0.8, 1.0, 0.9);
+
+  // blend words over the existing color
+  color.rgb = mix(color.rgb, wordColor, wordMask * ((cos(t*3.) + 0.4) * 0.08));
+
+  fragColor = color;
+}
+
+`;
+
+  // ---- FIXED: more robust shader creation ----
+  function createShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+    const info = gl.getShaderInfoLog(shader);
+
+    if (!success) {
+      console.error('Shader compile error:', info);
+      gl.deleteShader(shader);
+      throw new Error(info || 'Shader compile error');
+    }
+
+    if (info) {
+      console.warn('Shader compile log:', info);
+    }
+
+    return shader;
+  }
+
+  // ---- FIXED: more robust program creation ----
+  function createProgram(gl, vertexShader, fragmentShader) {
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+
+    const success = gl.getProgramParameter(program, gl.LINK_STATUS);
+    const info = gl.getProgramInfoLog(program);
+
+    if (!success) {
+      console.error('Program link error:', info);
+      gl.deleteProgram(program);
+      throw new Error(info || 'Program link error');
+    }
+
+    if (info) {
+      console.warn('Program link log:', info);
+    }
+
+    return program;
+  }
+
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource);
+  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+  const program = createProgram(gl, vertexShader, fragmentShader);
+  gl.useProgram(program);
+
+  // Vertex Positions
+  const positions = new Float32Array([
+    -1,-1,0, -1,1,0, 1,1,0,
+    1,-1,0, 1,1,0, -1,-1,0
+  ]);
+  const positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(0);
+
+  // Texture Positions
+  const uvPosArray = new Float32Array([
+    1,1, 1,0, 0,0,   0,1, 0,0, 1,1
+  ]);
+  const uvBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, uvPosArray, gl.STATIC_DRAW);
+  gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(1);
+
+  const work0Location = gl.getUniformLocation(program, 'u_work0');
+  const work1Location = gl.getUniformLocation(program, 'u_work1');
+  const timeLocation  = gl.getUniformLocation(program, 'u_time');
+  const orientationLocation = gl.getUniformLocation(program, 'u_orientation');
+
+  const work0 = new Uint8Array(4);
+  const work1 = new Uint8Array(4);
+
+  // current orientation: [roll, pitch, yaw]
+  const orientation = new Float32Array(3);
+  let hasDeviceOrientation = false;
+
+  const textCanvas = document.createElement('canvas');
+  textCanvas.width  = 1024; 
+  textCanvas.height = 256;
+  const textCtx = textCanvas.getContext('2d');
+
+  function clearTextCanvas() {
+    textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+  }
+
+  function drawWord(word) {
+    clearTextCanvas();
+    textCtx.font = 'bold 160px RubikGlitch, sans-serif';
+    textCtx.textAlign = 'center';
+    textCtx.textBaseline = 'middle';
+    textCtx.fillStyle = 'white'; // white text, transparent background
+    textCtx.fillText(word, textCanvas.width / 2, textCanvas.height / 2);
+  }
+
+  const textTexture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, textTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  // initial upload (blank)
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    textCanvas
+  );
+
+  const textLocation = gl.getUniformLocation(program, 'u_text');
+  gl.uniform1i(textLocation, 0); // we’ll use texture unit 0
+
+  const words = ['EXPLORE', 'TRANSITION', 'LOVE', 'BEAUTY', 'FEELING', 'TOGETHER', 'PERSEPECTIVE']; // whatever you like
+  let showText = false;
+  let lastChange = 0;
+
+  function updateTextForTime(timeMs) {
+    // change state every 3 seconds
+    if (timeMs - lastChange < 3000) return;
+    lastChange = timeMs;
+
+    // 80% chance to show a word
+    if (Math.random() < 0.8) {
+      showText = true;
+      const w = words[Math.floor(Math.random() * words.length)];
+      drawWord(w);
+    } else {
+      showText = false;
+      clearTextCanvas();
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, textTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
+  }
+
+  // Device orientation (mobile / tablet)
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', (event) => {
+      // event.beta  : [-180, 180] front/back (pitch)
+      // event.gamma : [-90,  90]  left/right (roll)
+      // event.alpha : [0,    360] compass (yaw)
+      const beta  = (event.beta-90  || 0) * Math.PI / 180.0;
+      const gamma = (event.gamma || 0) * Math.PI / 180.0;
+      const alpha = (event.alpha || 0) * Math.PI / 180.0;
+
+      const roll  = Math.sin(gamma);
+      const pitch = Math.sin(beta);
+      const yaw   = Math.sin(alpha);
+
+      orientation[0] = roll;
+      orientation[1] = pitch;
+      orientation[2] = yaw;
+
+      hasDeviceOrientation = true;
+    }, true);
+  }
+
+  // Mouse position fallback (desktop / sensors unavailable)
+  window.addEventListener('mousemove', (event) => {
+    // If we're already getting sensor data, don't override it
+    if (hasDeviceOrientation) return;
+
+    const x = (event.clientX / window.innerWidth) * 2.0 - 1.0; // [-1, 1]
+    const y = (event.clientY / window.innerHeight) * 2.0 - 1.0;
+
+    const roll  = x;        // tilt left/right
+    const pitch = -y;       // tilt forward/back
+    const yaw   = 0.5 * x;  // subtle twist
+
+    orientation[0] = roll;
+    orientation[1] = pitch;
+    orientation[2] = yaw;
+  });
+
+  function draw(time) {
+    window.crypto.getRandomValues(work0);
+    window.crypto.getRandomValues(work1);
+
+    gl.uniform4uiv(work0Location, Array.from(work0));
+    gl.uniform4uiv(work1Location, Array.from(work1));
+    gl.uniform3fv(orientationLocation, orientation);
+    gl.uniform1f(timeLocation, time * 0.001);
+    updateTextForTime(time);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, textTexture);
+
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    window.requestAnimationFrame(draw);
+  }
+
+  // Begin generation
+  window.requestAnimationFrame(draw);
+</script>
+
+</body>
+</html>
+
