@@ -98,9 +98,6 @@ void main() {
   float px = uv_pos.x * 1919.;  // ${canvas.width - 1}.
   float py = uv_pos.y * 1079.;  // ${canvas.height - 1}.
 
-  // Use continuous time directly (no wrapping)
-  float t = u_time;
-
   // Centered UV for "3D" perspective tricks
   vec2 p = uv_pos * 2.0 - 1.0;
 
@@ -126,15 +123,15 @@ void main() {
   vec2 dir = uv_pos - origin;     // vector from origin to fragment
   float angle = atan(dir.y, dir.x);  // [-pi, pi]
 
-  float numRays = ((cos(t/4.)*0.25) + 1.) * 40.0;
-  float rotationSpeed = ((cos(t/4.)*0.25) + 1.) * 4.7;
+  float numRays = ((cos(u_time/4.)*0.25) + 1.) * 40.0;
+  float rotationSpeed = ((cos(u_time/4.)*0.25) + 1.) * 4.7;
 
   // Parallax: rays pack closer together when "far" and spread when "near"
   float rayParallax = mix(0.6, 1.6, depth);
 
   float baseRed = 0.5 + 0.5 * cos(
     angle * numRays * rayParallax
-    - t * rotationSpeed
+    - u_time * rotationSpeed
     + twist * 2.5            // twist the whole fan when you rotate the device
   );
 
@@ -142,8 +139,8 @@ void main() {
   baseRed *= mix(0.6, 1.2, 1.0 - depth);
 
   // --- GREEN: vertical bars with 3D skew ---
-  // Cycle between 60-120 px every ~18 seconds (t/3 radians)
-  float baseBarSize = (cos(t/3.) + 1.) * 60.0;
+  // Cycle between 60-120 px every ~18 seconds (time/3 radians)
+  float baseBarSize = (cos(u_time/3.) + 1.) * 60.0;
   float barScale = mix(8.0, 1.0, uv_pos.y); // 8x at top → 1x at bottom
   float barPx = baseBarSize * barScale;
 
@@ -153,7 +150,7 @@ void main() {
   float skew = tiltX * 0.5;
   float depthScroll = mix(0.6, 1.4, depth);
 
-  float coord = (py + t * greenSpeed * depthScroll) / barPx;
+  float coord = (py + greenSpeed * depthScroll) / barPx;
   coord += p.x * skew;  // sideways parallax
 
   float baseGreen = sin(fract(coord) * 3.1415926);
@@ -170,7 +167,7 @@ void main() {
   float frameRand = fract(sin(flickerStep * 43758.19) * 43758.5453);
 
   // grain in pixel space, scrolling with time
-  float grain = grainNoise(vec2(px, py), t, frameRand);
+  float grain = grainNoise(vec2(px, py), u_time, frameRand);
 
   // center around 0 and scale
   float grainAmt = 0.60;                 // overall grain strength
@@ -223,7 +220,7 @@ void main() {
   vec3 wordColor = vec3(0.8, 1.0, 0.9);
 
   // blend words over the existing color
-  color.rgb = mix(color.rgb, wordColor, wordMask * ((cos(t*3.) + 0.4) * 0.08));
+  color.rgb = mix(color.rgb, wordColor, wordMask * ((cos(u_time*3.) + 0.4) * 0.08));
 
   fragColor = color;
 }
