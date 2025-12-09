@@ -82,7 +82,7 @@ float hash21(vec2 p) {
 float grainNoise(vec2 p, float time, float frameRand) {
   // scale to "texture" space
   vec2 q = p * 0.015;       // smaller = bigger grain, larger = finer grain
-  q.y += time * 0.6;        // scroll upward over time
+  q.y += cos(time) * 6.;        // scroll upward over time
 
   float n  = hash21(q);
   n       += 0.5 * hash21(q * 2.3 + 7.1); // second octave for extra grit
