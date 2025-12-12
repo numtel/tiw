@@ -131,7 +131,7 @@ void main() {
 
   float baseRed = 0.5 + 0.5 * cos(
     angle * numRays * rayParallax
-    - u_time * rotationSpeed
+    - cos(u_time) * rotationSpeed
     + twist * 2.5            // twist the whole fan when you rotate the device
   );
 
